@@ -16,6 +16,8 @@ from rclpy.action import ActionClient
 import time
 from .utils import Point, Pose2D, camera_to_world_pose
 
+debug = False
+
 class PlanExecutor(Node):
 
     def __init__(self, task_sequence: list, obj_name: str):
@@ -51,7 +53,10 @@ class PlanExecutor(Node):
                 else:
                     raise RuntimeError("Wrong task name {}!".format(task))
         except Exception as e:
-            return (task, e)
+            if debug:
+                return (task, e)
+            else:
+                raise e
         print("All task executed successfully!")
     
     def send_search_in_map(self, obj_name, task_type):
