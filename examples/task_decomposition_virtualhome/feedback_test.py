@@ -5,6 +5,7 @@ import json
 import os
 import re
 import time
+from openai import AzureOpenAI
 from virtualhome.simulation.unity_simulator.comm_unity import UnityCommunication
 
 enc = tiktoken.get_encoding("cl100k_base")
@@ -279,29 +280,26 @@ class ChatGPT:
 
     def __init__(
             self,
-            credentials,
             prompt_load_order,
             use_azure=True,
-            api_version='2023-05-15'):
+            api_version='2024-05-01-preview'):
         self.use_azure = use_azure
         if self.use_azure:
-            openai.api_key = credentials["azureopenai"]["AZURE_OPENAI_KEY"]
-            openai.api_base = credentials["azureopenai"]["AZURE_OPENAI_ENDPOINT"]
-            openai.api_type = 'azure'
-            if api_version not in self.VALID_API_VERSIONS:
-                raise ValueError(
-                    f'api_version must be one of {self.VALID_API_VERSIONS}')
-            openai.api_version = api_version
-        else:
-            openai.organization = credentials["openai"]["YOUR_ORG_ID"]
-            openai.api_key = credentials["openai"]["OPENAI_API_KEY"]
+            self.endpoint = os.getenv("ENDPOINT_URL", "https://perception-openai.openai.azure.com/")  
+            self.deployment = os.getenv("DEPLOYMENT_NAME", "gpt-4o")
+            self.subscription_key = os.getenv("AZURE_OPENAI_API_KEY", "")  
 
-        self.credentials = credentials
+            # 使用基于密钥的身份验证来初始化 Azure OpenAI 客户端
+            self.client = AzureOpenAI(  
+                azure_endpoint=self.endpoint,  
+                api_key=self.subscription_key,  
+                api_version="2024-05-01-preview",  
+            )
+
         self.messages = []
-        self.max_token_length = 15000  # 4000
-        self.max_completion_length = 2000  # 1300
+        self.max_token_length = 16000
+        self.max_completion_length = 1000
         self.last_response = None
-        self.last_response_raw = None
         self.query = ''
         self.instruction = ''
         # load prompt file
@@ -329,37 +327,21 @@ class ChatGPT:
             self.query = f.read()
 
     def create_prompt(self):
-        prompt = ""
-        if self.use_azure and openai.api_version == '2022-12-01':
-            prompt = "<|im_start|>system\n"
-            prompt += self.system_message["content"]
-            prompt += "\n<|im_end|>\n"
-            for message in self.messages:
-                prompt += f"\n<|im_start|>{message['sender']}\n{message['text']}\n<|im_end|>"
-            prompt += "\n<|im_start|>assistant\n"
-            print('prompt length: ' + str(len(enc.encode(prompt))))
-            if len(enc.encode(prompt)) > self.max_token_length - \
-                    self.max_completion_length:
-                print('prompt too long. truncated.')
-                # truncate the prompt by removing the oldest two messages
-                self.messages = self.messages[2:]
-                prompt = self.create_prompt()
-        else:
-            prompt = []
-            prompt.append(self.system_message)
-            for message in self.messages:
-                prompt.append(
-                    {"role": message['sender'], "content": message['text']})
-            prompt_content = ""
-            for message in prompt:
-                prompt_content += message["content"]
-            print('prompt length: ' + str(len(enc.encode(prompt_content))))
-            if len(enc.encode(prompt_content)) > self.max_token_length - \
-                    self.max_completion_length:
-                print('prompt too long. truncated.')
-                # truncate the prompt by removing the oldest two messages
-                self.messages = self.messages[2:]
-                prompt = self.create_prompt()
+        prompt = []
+        prompt.append(self.system_message)
+        for message in self.messages:
+            prompt.append(
+                {"role": message['sender'], "content": message['text']})
+        prompt_content = ""
+        for message in prompt:
+            prompt_content += message["content"]
+        print('prompt length: ' + str(len(enc.encode(prompt_content))))
+        if len(enc.encode(prompt_content)) > self.max_token_length - \
+                self.max_completion_length:
+            print('prompt too long. truncated.')
+            # truncate the prompt by removing the oldest two messages
+            self.messages = self.messages[2:]
+            prompt = self.create_prompt()
         return prompt
 
     def extract_json_part(self, text):
@@ -387,46 +369,25 @@ class ChatGPT:
                 self.instruction = text_base
             self.messages.append({'sender': 'user', 'text': text_base})
 
-        if self.use_azure and openai.api_version == '2022-12-01':
-            # Remove unsafe user inputs. May need further refinement in the
-            # future.
-            if message.find('<|im_start|>') != -1:
-                message = message.replace('<|im_start|>', '')
-            if message.find('<|im_end|>') != -1:
-                message = message.replace('<|im_end|>', '')
-            deployment_name = self.credentials["azureopenai"]["AZURE_OPENAI_DEPLOYMENT_NAME_CHATGPT"]
-            response = openai.Completion.create(
-                engine=deployment_name,
-                prompt=self.create_prompt(),
-                temperature=0.0,
-                max_tokens=self.max_completion_length,
-                top_p=0.5,
-                frequency_penalty=0.0,
-                presence_penalty=0.0,
-                stop=["<|im_end|>"])
-            text = response['choices'][0]['text']
-        elif self.use_azure and openai.api_version == '2023-05-15':
-            deployment_name = self.credentials["azureopenai"]["AZURE_OPENAI_DEPLOYMENT_NAME_CHATGPT"]
-            response = openai.ChatCompletion.create(
-                engine=deployment_name,
-                messages=self.create_prompt(),
-                temperature=0.0,
-                max_tokens=self.max_completion_length,
-                top_p=0.5,
-                frequency_penalty=0.0,
-                presence_penalty=0.0)
-            text = response['choices'][0]['message']['content']
-        else:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo-16k",
-                # "gpt-4" is available, too. Check the available models in https://platform.openai.com/docs/models/
-                messages=self.create_prompt(),
-                temperature=0.0,
-                max_tokens=self.max_completion_length,
-                top_p=0.5,
-                frequency_penalty=0.0,
-                presence_penalty=0.0)
-            text = response['choices'][0].message.content
+        speech_result = self.create_prompt()
+        print("--> prompt " + '=' * 100)
+        # print(json.dumps(speech_result, indent=4))
+        response = self.client.chat.completions.create(  
+            model=self.deployment,  
+            messages=speech_result,  
+            max_tokens=800,  
+            temperature=0.7,  
+            top_p=0.95,  
+            frequency_penalty=0,  
+            presence_penalty=0,  
+            stop=None,  
+            stream=False  
+        )  
+        print("-> response" + '-' * 100)
+        # print(response.to_json())
+        text = response.to_dict()['choices'][0]["message"]["content"]
+        print("-> content " + "*" * 100)
+
         self.last_response_raw = text
         self.messages.append(
             {"sender": "assistant", "text": self.last_response_raw})
@@ -436,8 +397,11 @@ class ChatGPT:
         self.last_response = self.last_response.replace("'", "\"")
         try:
             self.json_dict = json.loads(self.last_response, strict=False)
+            self.json_dict["environment_before"] = environment
             self.environment = self.json_dict["environment_after"]
-        except BaseException:
+        except BaseException as e:
+            import pdb
+            pdb.set_trace()
             self.json_dict = None
             return None
         return self.json_dict
@@ -498,7 +462,7 @@ def test_execution(comm, script):
 
 if __name__ == '__main__':
     comm = UnityCommunication()
-    dir_name = "out_feedback_test_gpt-3.5-turbo-16k_temp=0.0"
+    dir_name = "out_feedback_test_gpt-4o_temp=0.7"
     waittime_sec = 5  # wait 5 seconds between api calls to mitigate the rate limit
     max_trial = 6
     time_api_called = time.time() - waittime_sec
@@ -536,10 +500,7 @@ if __name__ == '__main__':
                           (current_time - time_api_called)) + " seconds...")
                     time.sleep(waittime_sec - (current_time - time_api_called))
                 if trial_idx == 0:
-                    aimodel = ChatGPT(
-                        credentials,
-                        prompt_load_order=prompt_load_order,
-                        use_azure=False)
+                    aimodel = ChatGPT(prompt_load_order=prompt_load_order, use_azure=True)
                     text = aimodel.generate(
                         instructions[0],
                         environment,

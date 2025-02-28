@@ -1,0 +1,32 @@
+[user]
+I will give you some examples of the input and the output you will generate. 
+Example 1:
+"""
+- Input:
+{"instruction": "Find a bottle and grab it."}
+- Output:
+```
+{"task_cohesion": {
+    "task_sequence": [
+        "search_roughly_and_approach_object()",
+        "move_chassis_based_on_object()",
+        "detect_precisely()",
+        "grasp_object()"
+    ],
+    "step_instructions": [
+        "search rough location of the bottle and approach it.",
+        "move to a proper position based on the position of the detected bottle.",
+        "Detect the more precise position of the bottle after approaching it.",
+        "grasp the bottle."
+    ],
+    "object_name": "<bottle>"},
+"instruction_summary": "find a bottle and grab it.",
+"question": "",
+"response": "Alright, I will start looking for a bottle and grab it."}
+```
+"""
+From these examples, learn that some robotic actions have dependencies with the actions before and after them.
+-------------------------------------------------------
+The texts above are part of the overall instruction. Do not start working yet:
+[assistant]
+Understood. I will wait for further instructions before starting to work.

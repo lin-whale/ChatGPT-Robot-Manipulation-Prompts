@@ -4,7 +4,13 @@ import json
 import os
 import re
 import argparse
-from openai import AzureOpenAI  
+import sys
+import rclpy
+# append meta_action path
+sys.path.append("../..")
+from meta_action import meta_actions
+from meta_action.meta_actions import PlanExecutor
+from openai import AzureOpenAI
 
 enc = tiktoken.get_encoding("cl100k_base")
 
@@ -13,7 +19,6 @@ dir_prompt = './prompt'
 dir_query = './query'
 prompt_load_order = ['prompt_role',
                      'prompt_function',
-                     'prompt_environment',
                      'prompt_output_format',
                      'prompt_example']
 
@@ -33,7 +38,7 @@ class ChatGPT:
         if self.use_azure:
             self.endpoint = os.getenv("ENDPOINT_URL", "https://perception-openai.openai.azure.com/")  
             self.deployment = os.getenv("DEPLOYMENT_NAME", "gpt-4o")
-            self.subscription_key = os.getenv("AZURE_OPENAI_API_KEY", "")
+            self.subscription_key = os.getenv("AZURE_OPENAI_API_KEY", "")  
 
             # 使用基于密钥的身份验证来初始化 Azure OpenAI 客户端
             self.client = AzureOpenAI(  
@@ -48,6 +53,7 @@ class ChatGPT:
         self.last_response = None
         self.query = ''
         self.instruction = ''
+        self.user_feedback = 'Please adjust your output based on the feedback.'
         # load prompt file
         fp_system = os.path.join(dir_system, 'system.txt')
         with open(fp_system) as f:
@@ -93,8 +99,9 @@ class ChatGPT:
         return prompt
 
     def extract_json_part(self, text):
-        # because the json part is in the middle of the text, we need to extract it.
-        # json part is between ``` and ```.
+        "because the json part is in the middle of the text, we need to extract it. " \
+        "json part is between ``` and ```."
+
         # skip if there is no json part
         if text.find('```') == -1:
             return text
@@ -103,15 +110,15 @@ class ChatGPT:
         text_json = text[text.find("{"): text.find('```', text.find('```') + 3)]
         return text_json
 
-    def generate(self, message, environment, is_user_feedback=False):
+    def generate(self, message, is_user_feedback=False):
         if is_user_feedback:
             self.messages.append({'sender': 'user',
-                                  'text': message + "\n" + self.instruction})
+                                  'text': message + "\n" + self.user_feedback})
         else:
             text_base = self.query
-            if text_base.find('[ENVIRONMENT]') != -1:
-                text_base = text_base.replace(
-                    '[ENVIRONMENT]', json.dumps(environment))
+            # if text_base.find('[ENVIRONMENT]') != -1:
+            #     text_base = text_base.replace(
+            #         '[ENVIRONMENT]', json.dumps(environment))
             if text_base.find('[INSTRUCTION]') != -1:
                 text_base = text_base.replace('[INSTRUCTION]', message)
                 self.instruction = text_base
@@ -131,14 +138,14 @@ class ChatGPT:
             stop=None,  
             stream=False  
         )  
-        print("-> response" + '-' * 100)
-        print(response.to_json())
+        # print("-> response" + '-' * 100)
+        # print(response.to_json())
         text = response.to_dict()['choices'][0]["message"]["content"]
-        print("-> content " + "*" * 100)
-        print(text)
+        # print("-> content " + "*" * 100)
+        # print(text)
         self.last_response = text
         self.last_response = self.extract_json_part(self.last_response)
-        self.last_response = self.last_response.replace("'", "\"")
+        # self.last_response = self.last_response.replace("'", "\"")
         print("-> extracted content " + "=" * 100)
         print(self.last_response)
         # dump to a text file
@@ -146,7 +153,7 @@ class ChatGPT:
             f.write(self.last_response)
         try:
             self.json_dict = json.loads(self.last_response, strict=False)
-            self.environment = self.json_dict["environment_after"]
+            # self.environment = self.json_dict["environment_after"]
         except BaseException as e:
             import pdb
             pdb.set_trace()
@@ -166,124 +173,78 @@ class ChatGPT:
                 json.dump(self.json_dict, f, indent=4)
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--scenario',
-        type=str,
-        required=True,
-        help='scenario name (see the code for details)')
-    args = parser.parse_args()
-    scenario_name = args.scenario
-    # 1. example of moving objects on the table and the shelf
-    if scenario_name == 'shelf':
-        environment = {
-            "assets": [
-                "<table>",
-                "<shelf_bottom>",
-                "<shelf_top>",
-                "<trash_bin>",
-                "<floor>"],
-            "asset_states": {
-                "<shelf_bottom>": "on_something(<table>)",
-                "<trash_bin>": "on_something(<floor>)"},
-            "objects": [
-                "<spam>",
-                "<juice>"],
-            "object_states": {
-                "<spam>": "on_something(<table>)",
-                "<juice>": "on_something(<shelf_bottom>)"}}
-        instructions = ['Put the juice on top of the shelf',
-                        'Throw away the spam into the trash bin',
-                        'Move the juice on top of the table',
-                        'Throw away the juice']
-    # 2. example of opening and closing the fridge, and putting the juice on
-    # the floor
-    elif scenario_name == 'fridge':
-        environment = {
-            "assets": [
-                "<fridge>",
-                "<floor>"],
-            "asset_states": {
-                "<fridge>": "on_something(<floor>)"},
-            "objects": [
-                "<fridge_handle>",
-                "<juice>"],
-            "object_states": {
-                "<fridge_handle>": "closed()",
-                "<juice>": "inside_something(<fridge>)"}}
-        instructions = ['Open the fridge half way',
-                        'Open the fridge wider',
-                        'Take the juice in the fridge and put it on the floor',
-                        'Close the fridge']
-    # 3. example of opening and closing the drawer
-    elif scenario_name == 'drawer':
-        environment = {"assets": ["<drawer>", "<floor>"],
-                       "asset_states": {"<drawer>": "on_something(<floor>)"},
-                       "objects": ["<drawer_handle>"],
-                       "object_states": {"<drawer_handle>": "closed()"}}
-        instructions = ['Open the drawer widely',
-                        'Close the drawer half way',
-                        'Close the drawer fully']
-    # 4. example of wiping the table
-    elif scenario_name == 'table':
-        environment = {
-            "assets": [
-                "<table1>",
-                "<table2>",
-                "<trash_bin>",
-                "<floor>"],
-            "asset_states": {
-                "<table1>": "next_to(<table2>)",
-                "<trash_bin>": "on_something(<floor>)"},
-            "objects": ["<sponge>"],
-            "object_states": {
-                "<sponge>": "on_something(<table1>)"}}
-        instructions = ['Put the sponge on the table2',
-                        'Wipe the table2 with the sponge']
-    # 5. example of wiping the window
-    elif scenario_name == 'window':
-        environment = {
-            "assets": [
-                "<table>",
-                "<window>",
-                "<trash_bin>",
-                "<floor>"],
-            "asset_states": {
-                "<table>": "next_to(<window>)",
-                "<trash_bin>": "on_something(<floor>)"},
-            "objects": ["<sponge>"],
-            "object_states": {
-                "<sponge>": "on_something(<table>)"}}
-        instructions = [
-            'Get the sponge from the table and wipe the window with it. After that, put the sponge back on the table',
-            'Throw away the sponge on the table']
-    else:
-        parser.error('Invalid scenario name:' + scenario_name)
+def plan_exec(result):
+    task_sequence = result['task_cohesion']['task_sequence']
+    # object_name = result['task_cohesion']['object_name'].strip("<>")
+    # print(task_sequence, object_name)
+
+    rclpy.init()
+    # task_sequence = [
+    #     "search_roughly_and_approach_object()",
+    #     "move_chassis_based_on_object()",
+    #     "detect_precisely()",
+    #     "grasp_object()"
+    # ]
+    object_name = "shoe"
+    plan_executor = PlanExecutor(task_sequence, object_name)
+    exec_result = plan_executor.execute()
+    # rclpy.spin(plan_executor)
+    plan_executor.destroy_node()
+    rclpy.shutdown()
+    return (exec_result, task_sequence)
+
+def feedback_handle_exception(failed_action, task_sequence):
+    "generate user feedback automaticlly while exception occering during 'failed_action' in 'task_sequence'"
+    feedback = "The original task_sequence is:\n" + f"{json.dumps( dict(task_sequence=task_sequence))}\n" \
+               f"While executing {failed_action} in above task_sequence, an exception occurred. Please give me a new plan dictionary, to complete the original task_sequence." \
+               "Adhere to the output format I defined in the above instruction. Follow the six rules. Think step by step."
+    return feedback
+
+def main():
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument('--input', required=True, type=str, help="please input the instruction.")
+    # args = parser.parse_args()
+    # instruction = args.input
 
     aimodel = ChatGPT(
         prompt_load_order=prompt_load_order,
         use_azure=True)
 
-    if not os.path.exists(f'./out_{aimodel.deployment.replace('-', '_')}/' + scenario_name):
-        os.makedirs(f'./out_{aimodel.deployment.replace('-', '_')}/' + scenario_name)
-    for i, instruction in enumerate(instructions):
-        print(json.dumps(environment))
-        text = aimodel.generate(
+    if not os.path.exists(f'./out_{aimodel.deployment.replace("-", "_")}/'):
+        os.makedirs(f"./out_{aimodel.deployment.replace('-', '_')}/")
+
+    while True:
+        instruction = input("please input instruction (input empty to quit):")
+        if instruction == '':
+            break
+        result = aimodel.generate(
             instruction,
-            environment,
             is_user_feedback=False)
         while True:
             user_feedback = input(
                 'user feedback (return empty if satisfied): ')
-            # user_feedback = ''
             if user_feedback == 'q':
                 exit()
             if user_feedback != '':
-                text = aimodel.generate(
-                    user_feedback, environment, is_user_feedback=True)
+                result = aimodel.generate(
+                    user_feedback, is_user_feedback=True)
             else:
                 # update the current environment
-                environment = aimodel.environment
+                # environment = aimodel.environment
                 break
-        aimodel.dump_json(f'./out_{aimodel.deployment.replace('-', '_')}/{scenario_name}/{i}')
+        plan_result = plan_exec(result)
+        print(plan_result)
+
+        # while True:
+        #     plan_result = plan_exec(result)
+        #     if plan_result[0] is None:
+        #         aimodel.dump_json(f"./out_{aimodel.deployment.replace('-', '_')}/{instruction.replace(' ', '_')}")
+        #         break
+        #     else:
+        #         user_feedback = feedback_handle_exception(plan_result[0], plan_result[1])
+        #         result = aimodel.generate(user_feedback, is_user_feedback=True)
+
+
+if __name__ == "__main__":
+    main()
+    # plan_exec(1)

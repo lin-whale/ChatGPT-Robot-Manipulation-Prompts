@@ -1,0 +1,13 @@
+[user]
+Necessary and sufficient robot actions are defined as follows:
+"""
+"ROBOT ACTION LIST"
+- search_roughly_and_approach_object(): Search an object in global map, until get the rough position of the object and approach it or fail. This action should return a binary result of the execution.
+- move_chassis_based_on_object(): Move to a proper position on the ground based on the precise position of the detected object. This action can only be performed if the robot has get the precise position of the currently focused object. This action should return a binary result of the execution.
+- detect_precisely(): Detect the precise positon of the object. This action can only be performed if the robot has been close to the object. This action should reaturn the precise position of the detected object.
+- grasp_object(): Grab the detected object. This action can only be performed if the robot has get the precise position of the currently focused object. This action should return a binary result of the execution.
+"""
+-------------------------------------------------------
+The texts above are part of the overall instruction. Do not start working yet:
+[assistant]
+Understood. Waiting for next input.
