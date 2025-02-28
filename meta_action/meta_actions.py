@@ -44,14 +44,16 @@ class PlanExecutor(Node):
             for task in self.task_sequence:
                 if task == "search_roughly_and_approach_object()":
                     self.action_reuslt = self.send_search_in_map(obj_name=self.obj_name, task_type=0) # "all room"
-                if task == "move_chassis_based_on_object()":
+                elif task == "move_chassis_based_on_object()":
                     self.action_reuslt = self.send_search_in_map(obj_name=self.obj_name, task_type=-2) # "specified object"
-                if task == "detect_precisely()":
+                elif task == "detect_precisely()":
                     self.action_reuslt = self.arm_detect(label=self.obj_name)
-                if task == "grasp_object()":
+                elif task == "grasp_object()":
                     self.action_reuslt = self.grasp(241)    # take photos 240; grasp 241.
                 else:
                     raise RuntimeError("Wrong task name {}!".format(task))
+                print("Task {} executed successfully!".format(task))
+                print("action result: {}".format(self.action_reuslt))
         except Exception as e:
             if debug:
                 return (task, e)
@@ -65,7 +67,7 @@ class PlanExecutor(Node):
         search_req.item_labels = [obj_name]
         search_req.task_state = 1
         search_req.type = task_type
-        search_req.item_pose = geometry_msgs.msg.Point(x=0, y=0, z=0)  # pseudo item_pose
+        search_req.item_pose = geometry_msgs.msg.Point(x=0.0, y=0.0, z=0.0)  # pseudo item_pose
         if task_type == 0:
             # Start head camera detection service.
             self.head_detect_pub = self.create_publisher(Bool, "/task_switch_topic", 10)
@@ -85,7 +87,7 @@ class PlanExecutor(Node):
             camera_item_point = Point(self.head_detect_result.x, self.head_detect_result.y, self.head_detect_result.z)
             chass_orientation = self.chassis_pose.pose.orientation
             chassis_pose = Pose2D(self.chassis_pose.pose.position.x, self.chassis_pose.pose.position.y) \
-                                  .from_quat(chass_orientation.x, chass_orientation.y, chass_orientation.z, chass_orientation.w)
+                                  .from_quat([chass_orientation.x, chass_orientation.y, chass_orientation.z, chass_orientation.w])
             world_item_pose = camera_to_world_pose(chassis_pose, camera_item_point)
             search_req.item_pose = geometry_msgs.msg.Point(x=world_item_pose.x, y=world_item_pose.y, z=world_item_pose.z)
         else:

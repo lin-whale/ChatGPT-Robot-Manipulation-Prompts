@@ -225,15 +225,15 @@ def main():
                 'user feedback (return empty if satisfied): ')
             if user_feedback == 'q':
                 exit()
+            if user_feedback == 'r':
+                break
             if user_feedback != '':
                 result = aimodel.generate(
                     user_feedback, is_user_feedback=True)
             else:
-                # update the current environment
-                # environment = aimodel.environment
+                plan_result = plan_exec(result)
+                print(plan_result)
                 break
-        plan_result = plan_exec(result)
-        print(plan_result)
 
         # while True:
         #     plan_result = plan_exec(result)
